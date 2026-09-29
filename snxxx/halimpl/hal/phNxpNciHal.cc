@@ -273,8 +273,17 @@ void* phNxpNciHal_client_thread(void* arg) {
     /* Fetch next message from the NFC stack message queue */
     if (phDal4Nfc_msgrcv(p_nxpncihal_ctrl->gDrvCfg.nClientId, &msg, 0, 0) ==
         -1) {
-      NXPLOG_NCIHAL_E("NFC client received bad message");
-      continue;
+      /* phDal4Nfc_msgrcv() only fails once gDrvCfg.nClientId has been
+       * cleared to 0, i.e. a teardown released the message queue while
+       * this thread is still alive - most notably the firmware check
+       * abort in phNxpNciHal_force_fw_download(). The queue can never
+       * become valid again, so looping on the error spins forever,
+       * log-storming and wedging the HAL until the next reboot. Stop
+       * the thread instead so a later open can start a fresh one. */
+      NXPLOG_NCIHAL_E(
+          "NFC client received bad message; queue gone, stopping client thread");
+      p_nxpncihal_ctrl->thread_running = 0;
+      break;
     }
 
     if (p_nxpncihal_ctrl->thread_running == 0) {
